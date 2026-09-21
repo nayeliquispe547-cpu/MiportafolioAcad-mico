@@ -72,6 +72,7 @@ function cargarDatos() {
       try {
         const parsed = JSON.parse(guardado);
         if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+          aplicarEnlacesGuardados(parsed);
           return parsed;
         }
       } catch (e) {
@@ -100,15 +101,71 @@ function cargarDatos() {
       };
     }
   });
+  aplicarEnlacesGuardados(datosIniciales);
   return datosIniciales;
+}
+
+function aplicarEnlacesGuardados(datos) {
+  const guardado = localStorage.getItem("portafolio_enlaces_v1");
+  if (!guardado) return;
+
+  try {
+    const enlaces = JSON.parse(guardado);
+    Object.entries(enlaces).forEach(([cursoId, semanas]) => {
+      if (!datos[cursoId]) datos[cursoId] = { semanas: {} };
+      if (!datos[cursoId].semanas) datos[cursoId].semanas = {};
+
+      Object.entries(semanas).forEach(([numeroSemana, entregas]) => {
+        const semana = datos[cursoId].semanas[numeroSemana] || { entregas: [] };
+        semana.entregas = Array.isArray(semana.entregas) ? semana.entregas : [];
+        const enlacesActuales = new Set(
+          semana.entregas
+            .filter(entrega => entrega && entrega.tipo === "enlace")
+            .map(entrega => entrega.valor)
+        );
+        (Array.isArray(entregas) ? entregas : []).forEach(entrega => {
+          if (entrega && entrega.valor && !enlacesActuales.has(entrega.valor)) {
+            semana.entregas.push(entrega);
+          }
+        });
+        datos[cursoId].semanas[numeroSemana] = semana;
+      });
+    });
+  } catch (error) {
+    console.warn("Enlaces guardados inválidos:", error);
+  }
+}
+
+function guardarEnlaces(datos) {
+  const enlaces = {};
+  Object.entries(datos).forEach(([cursoId, curso]) => {
+    Object.entries((curso && curso.semanas) || {}).forEach(([numeroSemana, semana]) => {
+      const entregas = (semana && Array.isArray(semana.entregas)) ? semana.entregas : [];
+      const enlacesSemana = entregas.filter(entrega =>
+        entrega && entrega.tipo === "enlace" && typeof entrega.valor === "string" && entrega.valor.trim()
+      );
+      if (enlacesSemana.length > 0) {
+        if (!enlaces[cursoId]) enlaces[cursoId] = {};
+        enlaces[cursoId][numeroSemana] = enlacesSemana;
+      }
+    });
+  });
+  localStorage.setItem("portafolio_enlaces_v1", JSON.stringify(enlaces));
 }
 
 function guardarDatos(datos) {
   try {
     const datosLigeros = JSON.parse(JSON.stringify(datos));
     localStorage.setItem("portafolio_datos_v11", JSON.stringify(datosLigeros));
+    guardarEnlaces(datos);
   } catch (error) {
-    console.warn("Almacenamiento local al límite:", error);
+    try {
+      guardarEnlaces(datos);
+      console.warn("Almacenamiento principal lleno; los enlaces se guardaron por separado.");
+    } catch (enlaceError) {
+      console.error("No se pudieron guardar las evidencias:", enlaceError);
+      alert("No hay espacio suficiente para guardar la tarea. Elimina una evidencia grande e inténtalo nuevamente.");
+    }
   }
 }
 
