@@ -140,13 +140,20 @@ function aplicarEnlacesObjeto(datos, enlaces) {
       Object.entries(semanas).forEach(([numeroSemana, entregas]) => {
         const semana = datos[cursoId].semanas[numeroSemana] || { entregas: [] };
         semana.entregas = Array.isArray(semana.entregas) ? semana.entregas : [];
-        const enlacesActuales = new Set(
+        const entregasActuales = new Set(
           semana.entregas
-            .filter(entrega => entrega && entrega.tipo === "enlace")
-            .map(entrega => entrega.valor)
+            .filter(entrega => entrega)
+            .map(entrega => entrega.tipo === "enlace"
+              ? `enlace:${entrega.valor}`
+              : `archivo:${entrega.nombre}:${entrega.dataUrl || entrega.blobUrl || ""}`)
         );
         (Array.isArray(entregas) ? entregas : []).forEach(entrega => {
-          if (entrega && entrega.valor && !enlacesActuales.has(entrega.valor)) {
+          if (!entrega) return;
+          const clave = entrega.tipo === "enlace"
+            ? `enlace:${entrega.valor}`
+            : `archivo:${entrega.nombre}:${entrega.dataUrl || entrega.blobUrl || ""}`;
+          if ((entrega.tipo === "enlace" && entrega.valor || entrega.tipo === "archivo") &&
+              !entregasActuales.has(clave)) {
             semana.entregas.push(entrega);
           }
         });
@@ -168,34 +175,47 @@ function guardarEnlaces(datos) {
         enlaces[cursoId][numeroSemana] = enlacesSemana;
       }
 
-      function exportarEntregasGitHub(datos) {
-        const enlaces = {};
-        Object.entries(datos).forEach(([cursoId, curso]) => {
-          Object.entries((curso && curso.semanas) || {}).forEach(([numeroSemana, semana]) => {
-            const entregas = (semana && Array.isArray(semana.entregas)) ? semana.entregas : [];
-            const enlacesSemana = entregas.filter(entrega =>
-              entrega && entrega.tipo === "enlace" && typeof entrega.valor === "string" && entrega.valor.trim()
-            );
-            if (enlacesSemana.length) {
-              if (!enlaces[cursoId]) enlaces[cursoId] = {};
-              enlaces[cursoId][numeroSemana] = enlacesSemana;
-            }
-          });
-        });
-
-        const archivo = new Blob([JSON.stringify(enlaces, null, 2)], { type: "application/json" });
-        const enlace = document.createElement("a");
-        enlace.href = URL.createObjectURL(archivo);
-        enlace.download = "entregas.json";
-        document.body.appendChild(enlace);
-        enlace.click();
-        document.body.removeChild(enlace);
-        setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
-      }
     });
   });
   localStorage.setItem("portafolio_enlaces_v1", JSON.stringify(enlaces));
 }
+
+window.exportarEntregasGitHub = function exportarEntregasGitHub(datos) {
+  const entregasPublicadas = {};
+  Object.entries(datos).forEach(([cursoId, curso]) => {
+    Object.entries((curso && curso.semanas) || {}).forEach(([numeroSemana, semana]) => {
+      const entregas = (semana && Array.isArray(semana.entregas)) ? semana.entregas : [];
+      const entregasSemana = entregas.filter(entrega => {
+        if (!entrega) return false;
+        if (entrega.tipo === "enlace") return typeof entrega.valor === "string" && entrega.valor.trim();
+        return entrega.tipo === "archivo" && typeof entrega.dataUrl === "string" && entrega.dataUrl;
+      });
+      if (entregasSemana.length) {
+        if (!entregasPublicadas[cursoId]) entregasPublicadas[cursoId] = {};
+        entregasPublicadas[cursoId][numeroSemana] = entregasSemana.map(entrega => ({
+          tipo: entrega.tipo,
+          valor: entrega.valor || "",
+          nombre: entrega.nombre || "",
+          tipoMime: entrega.tipoMime || "application/octet-stream",
+          tamanio: entrega.tamanio || "",
+          dataUrl: entrega.dataUrl || "",
+          blobUrl: entrega.dataUrl || ""
+        }));
+      }
+    });
+  });
+
+  const contenido = JSON.stringify(entregasPublicadas, null, 2);
+  const archivo = new Blob([contenido], { type: "application/json" });
+  const enlace = document.createElement("a");
+  enlace.href = URL.createObjectURL(archivo);
+  enlace.download = "entregas.json";
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+  return contenido.length;
+};
 
 function guardarDatos(datos) {
   try {
